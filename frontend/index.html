@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description"
+        content="Power BI Query Chatbot - AI-powered conversational interface for ride-hailing work order analytics">
+    <title>Power BI Query Assistant</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+
+<body>
+    <div class="app-container" data-view-mode="web">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-content">
+                <div class="header-left">
+                    <div class="logo">
+                        <svg class="logo-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M3 3h7v7H3V3z" fill="#F2C811" />
+                            <path d="M14 3h7v7h-7V3z" fill="#F2C811" opacity="0.7" />
+                            <path d="M3 14h7v7H3v-7z" fill="#F2C811" opacity="0.5" />
+                            <path d="M14 14h7v7h-7v-7z" fill="#F2C811" opacity="0.3" />
+                        </svg>
+                        <h1>Power BI Query Assistant</h1>
+                    </div>
+                    <p class="subtitle">Ride-Hailing Analytics • AI-Powered</p>
+                </div>
+                <div class="header-right">
+                    <!-- View Toggle -->
+                    <div class="view-toggle" id="viewToggle">
+                        <button class="toggle-btn active" data-view="web" aria-label="Web View">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="3" y="3" width="7" height="7" />
+                                <rect x="14" y="3" width="7" height="7" />
+                                <rect x="14" y="14" width="7" height="7" />
+                                <rect x="3" y="14" width="7" height="7" />
+                            </svg>
+                            <span>Web View</span>
+                        </button>
+                        <button class="toggle-btn" data-view="bot" aria-label="Bot View">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+                            </svg>
+                            <span>Bot View</span>
+                        </button>
+                    </div>
+                    <!-- AI Mode Indicator -->
+                    <div class="ai-indicator" id="aiIndicator">
+                        <span class="ai-dot"></span>
+                        <span class="ai-label">AI Mode</span>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Chat Container -->
+            <div class="chat-container" id="chatContainer">
+                <div class="chat-header">
+                    <div class="chat-title">
+                        <span class="status-dot"></span>
+                        <span>Query Assistant</span>
+                    </div>
+                    <button class="minimize-btn" id="minimizeBtn" aria-label="Minimize chat">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="chat-messages" id="chatMessages">
+                    <!-- Messages will be inserted here -->
+                </div>
+
+                <div class="chat-input-container">
+                    <div class="quick-actions" id="quickActions">
+                        <!-- Quick action buttons inserted dynamically -->
+                    </div>
+                    <div class="input-wrapper">
+                        <input type="text" id="userInput" class="chat-input"
+                            placeholder="Ask anything about work orders..." autocomplete="off"
+                            aria-label="Type your message">
+                        <button class="send-btn" id="sendBtn" aria-label="Send message">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Results Area (Web View mode) -->
+            <div class="results-area" id="resultsArea">
+                <!-- Result cards will be inserted here in Web View mode -->
+            </div>
+        </main>
+    </div>
+
+    <!-- AI Agent System Architecture -->
+    <script src="js/api-client.js"></script>
+    <script src="js/export.js"></script>
+    <script src="js/app.js" defer></script>
+</body>
+
+</html>
