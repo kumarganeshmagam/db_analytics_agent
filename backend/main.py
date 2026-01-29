@@ -2,16 +2,21 @@ import os
 import json
 from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-from backend.models.schemas import QueryRequest, QueryResponse
-from backend.agents.main_agent import MainAgent
-from backend.config import settings
+from models.schemas import QueryRequest, QueryResponse
+from agents.main_agent import MainAgent
+from config import settings
 
 app = FastAPI(title=settings.PROJECT_NAME)
 
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost",
+        "http://localhost:80",
+        "http://127.0.0.1",
+        "http://127.0.0.1:80",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -37,7 +42,7 @@ async def process_query(request: QueryRequest):
 
 @app.get("/api/health")
 async def health():
-    return {"status": "healthy", "model": settings.GEMINI_MODEL}
+    return {"status": "healthy", "model": settings.OLLAMA_MODEL}
 
 @app.websocket("/ws/chat")
 async def websocket_endpoint(websocket: WebSocket):

@@ -34,6 +34,14 @@ class SQLQueryCleaner:
         # Basic fixes
         sql = sql.replace(' FROM orders', ' FROM work_orders')
         sql = sql.replace(' FROM "orders"', ' FROM work_orders')
+        sql = sql.replace(' FROM table_order', ' FROM work_orders')
+        sql = sql.replace(' FROM table_orders', ' FROM work_orders')
+        sql = sql.replace(' FROM "table_order"', ' FROM work_orders')
+        sql = sql.replace(' FROM "table_orders"', ' FROM work_orders')
+        sql = sql.replace(' JOIN table_order', ' JOIN work_orders')
+        sql = sql.replace(' JOIN table_orders', ' JOIN work_orders')
+        sql = sql.replace(' JOIN "table_order"', ' JOIN work_orders')
+        sql = sql.replace(' JOIN "table_orders"', ' JOIN work_orders')
         
         # Ensure LIMIT
         if 'LIMIT' not in sql.upper() and 'SELECT' in sql.upper():

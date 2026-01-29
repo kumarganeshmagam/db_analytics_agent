@@ -3,127 +3,194 @@ import re
 import asyncio
 from typing import List, Dict, Any, Optional
 from langchain_community.utilities import SQLDatabase
-from langchain_community.agent_toolkits import create_sql_agent
-from langchain_google_genai import ChatGoogleGenerativeAI
-from backend.config import settings
-from backend.utils.query_cleaner import SQLQueryCleaner
+from langchain_community.chat_models import ChatOllama
+from langchain.schema.output_parser import StrOutputParser
+from langchain.schema.runnable import RunnablePassthrough
+from sqlalchemy import create_engine, text as sql_text
+from langchain.prompts import PromptTemplate
+from config import settings
 
 class SQLQueryAgent:
     """
-    Sub-agent responsible for generating and executing SQL queries.
+    Specialized agent for SQL query generation and execution with pagination.
     """
-    
-    def __init__(self, db_uri: str, gemini_api_key: str):
+    ALLOWED_TABLES = {"work_orders"}
+
+    def __init__(self, db_uri: str):
         self.db_uri = db_uri
-        # Initialize LangChain SQL database
-        self.db = SQLDatabase.from_uri(db_uri)
+        self.db = SQLDatabase.from_uri(db_uri, include_tables=["work_orders"])
+        self.engine = create_engine(db_uri)
         
-        # Initialize Gemini LLM
-        self.llm = ChatGoogleGenerativeAI(
-            model=settings.GEMINI_MODEL,
-            google_api_key=gemini_api_key,
-            temperature=0.1
+        self.llm = ChatOllama(
+            base_url=settings.OLLAMA_BASE_URL,
+            model=settings.OLLAMA_MODEL,
+            temperature=0.0
         )
         
-        # Create SQL agent
-        self.agent_executor = create_sql_agent(
-            llm=self.llm,
-            db=self.db,
-            agent_type="openai-tools",
-            verbose=True,
-            handle_parsing_errors=True
+        self.sql_generation_chain = self._create_sql_generation_chain()
+
+    def _create_sql_generation_chain(self):
+        """Creates a chain for SQL query generation."""
+        template = """
+You are a SQL expert. Generate a syntactically correct PostgreSQL query based on the schema and user question.
+
+**Rules**:
+1. Return ONLY the SQL query, no explanations
+2. Do NOT include LIMIT or OFFSET clauses (they will be added automatically)
+3. Use proper PostgreSQL syntax
+4. Handle filters, sorting, and aggregations as requested
+5. For geographical filters (south, north, etc.), use LIKE or ILIKE on city column
+
+**Schema**:
+{schema}
+
+**User Question**:
+{question}
+
+**SQL Query** (no markdown, no explanations):
+"""
+        prompt = PromptTemplate(
+            input_variables=["question", "schema"],
+            template=template,
         )
-        
-        self.cleaner = SQLQueryCleaner(max_limit=settings.MAX_SQL_LIMIT)
-    
-    async def process(self, user_query: str, context: Optional[Dict] = None) -> Dict[str, Any]:
+
+        return (
+            {"schema": lambda x: self.db.get_table_info(), "question": RunnablePassthrough()}
+            | prompt
+            | self.llm
+            | StrOutputParser()
+        )
+
+    async def process(self, user_query: str, context: Optional[Dict] = None, 
+                     limit: int = None, offset: int = 0) -> Dict[str, Any]:
         """
-        Process natural language query and return SQL results.
+        Generates and executes SQL query with pagination support.
         """
+        if limit is None:
+            limit = settings.DEFAULT_PAGE_SIZE
+        limit = min(max(int(limit), 1), settings.MAX_SQL_LIMIT)
+        offset = max(int(offset), 0)
+            
         try:
-            # Step 1: Enhance query with context
-            enhanced_query = self._enhance_query(user_query, context)
+            # Generate SQL query
+            generated_sql = await self.sql_generation_chain.ainvoke(user_query)
             
-            # Step 2: Generate and execute SQL using LangChain
-            # Note: create_sql_agent's executor runs the query and returns the final answer.
-            # We also want the SQL query for transparency.
+            # Clean the SQL
+            cleaned_sql = self._clean_sql(generated_sql)
+
+            # Guardrails: SELECT-only and allowed tables
+            if not self._validate_sql(cleaned_sql):
+                return {
+                    'success': False,
+                    'error': 'Query blocked by safety rules',
+                    'results': [],
+                    'total_count': 0
+                }
             
-            # Since create_sql_agent runs the tool, we can extract the SQL from logs or
-            # use a simpler chain if we just want SQL. 
-            # For now, let's use the agent to get the final answer, 
-            # but in a production app we might want to separate generation and execution.
+            # Add pagination
+            paginated_sql = self._add_pagination(cleaned_sql, limit, offset)
             
-            # Custom prompt to ensure it returns the SQL as well or just execute it.
-            response = await asyncio.to_thread(self.agent_executor.invoke, {"input": enhanced_query})
+            # Get total count (for pagination metadata)
+            total_count = await self._get_total_count(cleaned_sql)
             
-            # Extract final result
-            final_output = response.get("output", "")
-            
-            # Try to find the SQL that was executed (this is tricky with the default agent)
-            # Alternatively, we can run a separate generation call for the SQL UI display.
-            sql_query = await self._generate_sql_only(enhanced_query)
-            
-            # Execute the generated SQL to get structured data
-            results = await self._execute_sql(sql_query)
-            
+            # Execute paginated query
+            with self.engine.connect() as connection:
+                result = connection.execute(sql_text(paginated_sql))
+                rows = result.fetchall()
+                columns = result.keys()
+                
+                # Convert to list of dictionaries
+                results_list = [dict(zip(columns, row)) for row in rows]
+
             return {
                 'success': True,
-                'text': final_output,
-                'sql_query': sql_query,
-                'results': results,
-                'summary': self._generate_summary(results)
+                'sql_query': paginated_sql,
+                'results': results_list,
+                'total_count': total_count,
+                'summary': self._generate_summary(results_list, total_count)
             }
-            
+
         except Exception as e:
+            # Don't expose internal errors to user
             return {
                 'success': False,
-                'error': str(e),
-                'results': []
+                'error': 'Query execution failed',
+                'results': [],
+                'total_count': 0
             }
-            
-    async def _generate_sql_only(self, query: str) -> str:
-        """Generate SQL query only for UI display."""
-        prompt = f"""
-        Given the following database schema, generate a PostgreSQL SELECT query to answer the user request.
-        Schema: work_orders table with columns: work_order_id, service_provider, status, priority, city, region, order_type, customer_type, cost_inr, resolution_time_hrs, sla_met, customer_rating, escalation_count, created_date, completed_date.
-        
-        User Request: "{query}"
-        
-        Respond with ONLY the SQL query. No explanations.
-        """
-        response = await self.llm.ainvoke(prompt)
-        return self.cleaner.clean(response.content)
 
-    def _enhance_query(self, query: str, context: Optional[Dict]) -> str:
-        if not context:
-            return query
-        filters = context.get('filters', {})
-        if filters:
-            query += f" (Filters: {filters})"
-        return query
+    def _clean_sql(self, sql_query: str) -> str:
+        """Remove markdown and extract pure SQL."""
+        # Remove markdown code blocks
+        cleaned = re.sub(r"```(sql)?", "", sql_query, flags=re.IGNORECASE)
+        
+        # Extract SELECT statement
+        select_match = re.search(r"SELECT", cleaned, re.IGNORECASE)
+        if select_match:
+            cleaned = cleaned[select_match.start():]
+        
+        # Remove any existing LIMIT/OFFSET
+        cleaned = re.sub(r'\s*LIMIT\s+\d+', '', cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r'\s*OFFSET\s+\d+', '', cleaned, flags=re.IGNORECASE)
+        
+        return cleaned.strip().rstrip(';')
 
-    async def _execute_sql(self, sql: str) -> List[Dict[str, Any]]:
-        if not sql:
-            return []
+    def _add_pagination(self, sql: str, limit: int, offset: int) -> str:
+        """Add LIMIT and OFFSET to SQL query."""
+        return f"{sql} LIMIT {limit} OFFSET {offset};"
+
+    async def _get_total_count(self, sql: str) -> int:
+        """Get total count of records without pagination."""
         try:
-            # Simple validation
-            if not sql.strip().upper().startswith("SELECT"):
-                return []
+            # Convert SELECT query to COUNT query
+            count_sql = f"SELECT COUNT(*) as total FROM ({sql}) as subquery;"
+            
+            with self.engine.connect() as connection:
+                result = connection.execute(sql_text(count_sql))
+                row = result.fetchone()
+                return row[0] if row else 0
                 
-            return await asyncio.to_thread(self.db.run, sql, fetch="all")
-        except Exception as e:
-            print(f"SQL Execution Error: {e}")
-            return []
+        except:
+            return 0
 
-    def _generate_summary(self, results: List[Any]) -> Dict[str, Any]:
-        # If results is a string (from db.run for some tools), parse it or handle it.
-        # LangChain db.run often returns a string representation of the list.
-        # We might need to use sqlalchemy directly for better structured data.
-        
-        if not isinstance(results, list):
-            return {"total": 0}
+    def _generate_summary(self, results: List[Dict], total_count: int) -> Dict[str, Any]:
+        """Generate summary information."""
+        if not results:
+            return {"total_count": 0, "returned": 0, "columns": []}
             
         return {
-            "total": len(results),
-            "columns": results[0].keys() if results and isinstance(results[0], dict) else []
+            "total_count": total_count,
+            "returned": len(results),
+            "columns": list(results[0].keys()) if results else []
         }
+
+    def _validate_sql(self, sql: str) -> bool:
+        """Block non-SELECT statements and non-whitelisted tables."""
+        if not sql:
+            return False
+        normalized = sql.strip().rstrip(';')
+        lowered = normalized.lower()
+        if not (lowered.startswith('select') or lowered.startswith('with')):
+            return False
+
+        # Block non-select keywords defensively
+        forbidden = ['insert', 'update', 'delete', 'drop', 'alter', 'truncate', 'create']
+        if any(re.search(rf'\b{kw}\b', normalized, flags=re.IGNORECASE) for kw in forbidden):
+            return False
+
+        tables = self._extract_table_names(normalized)
+        if not tables:
+            allowed = next(iter(self.ALLOWED_TABLES))
+            return re.search(rf'\b{re.escape(allowed)}\b', normalized, flags=re.IGNORECASE) is not None
+        return all(table in self.ALLOWED_TABLES for table in tables)
+
+    def _extract_table_names(self, sql: str) -> List[str]:
+        """Extract table names from FROM/JOIN clauses."""
+        pattern = r'\b(from|join)\s+(["\w\.]+)'
+        tables = []
+        for match in re.finditer(pattern, sql, flags=re.IGNORECASE):
+            raw = match.group(2)
+            raw = raw.strip('\"')
+            table = raw.split('.')[-1]
+            tables.append(table)
+        return tables

@@ -31,6 +31,7 @@
     --shadow-md: 0 8px 32px rgba(0, 0, 0, 0.4);
     --shadow-lg: 0 16px 64px rgba(0, 0, 0, 0.5);
     --shadow-glow: 0 0 40px rgba(242, 200, 17, 0.15);
+    --shadow-table: 0 10px 30px rgba(0, 0, 0, 0.35);
 
     /* Typography */
     --font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -40,6 +41,10 @@
     --chat-height-web: 600px;
     --chat-width-bot: 440px;
     --chat-height-bot: 700px;
+
+    /* Results sizing */
+    --results-max-width: 980px;
+    --results-table-max-height: calc(100vh - 280px);
 
     --radius-sm: 8px;
     --radius-md: 12px;
@@ -903,10 +908,11 @@ body::before {
    ============================================ */
 .results-area {
     flex: 1;
+    display: flex;
     flex-direction: column;
     gap: 16px;
     min-width: 0;
-    display: none;
+    overflow: hidden;
 }
 
 /* Result Card (Web View) */
@@ -916,6 +922,9 @@ body::before {
     border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
     overflow: hidden;
+    width: min(100%, var(--results-max-width));
+    margin: 0 auto;
+    box-shadow: var(--shadow-md);
 }
 
 .result-card:hover {
@@ -1027,9 +1036,14 @@ body::before {
 
 /* Result Table (Web View) */
 .result-table-wrapper {
-    max-height: 280px;
+    flex-grow: 1;
     overflow: auto;
-    margin: 0 16px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.02) 0%, transparent 100%);
+    box-shadow: var(--shadow-table);
+    padding: 6px;
+    max-height: var(--results-table-max-height);
 }
 
 .result-table-wrapper::-webkit-scrollbar {
@@ -1057,6 +1071,7 @@ body::before {
     top: 0;
     background: var(--bg-secondary);
     z-index: 1;
+    box-shadow: 0 2px 0 rgba(0, 0, 0, 0.2);
 }
 
 .result-table th {
@@ -1074,6 +1089,12 @@ body::before {
     padding: 10px 12px;
     border-bottom: 1px solid var(--border-color);
     color: var(--text-primary);
+    vertical-align: top;
+    word-break: break-word;
+}
+
+.result-table tbody tr:nth-child(even) {
+    background: rgba(255, 255, 255, 0.02);
 }
 
 .result-table tbody tr:hover {
@@ -1346,4 +1367,24 @@ body::before {
 :focus-visible {
     outline: 2px solid var(--accent-primary);
     outline-offset: 2px;
+}
+
+/* Show More Button */
+.show-more-btn {
+    flex-shrink: 0;
+    margin: 16px 0 0 0;
+    padding: 10px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: var(--transition-fast);
+    width: 100%;
+}
+
+.show-more-btn:hover {
+    background: var(--accent-gradient);
+    color: var(--bg-primary);
+    border-color: var(--accent-primary);
 }

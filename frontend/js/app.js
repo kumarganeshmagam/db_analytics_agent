@@ -7,6 +7,11 @@ class App {
         this.apiClient = new APIClient();
         this.currentResults = null;
         this.viewMode = 'web';
+        this.fullData = [];
+        this.renderedDataCount = 0;
+        this.pageSize = 10;
+        this.currentPage = 1;
+        this.hasMore = false;
 
         // DOM Elements
         this.appContainer = document.querySelector('.app-container');
@@ -47,16 +52,28 @@ class App {
         });
     }
 
-    async sendMessage() {
+    async sendMessage(isShowMore = false) {
         const message = this.userInput.value.trim();
-        if (!message) return;
+        if (!message && !isShowMore) return;
 
-        this.addMessage(message, 'user');
-        this.userInput.value = '';
+        const query = isShowMore ? 'show more' : message;
+
+        if (!isShowMore) {
+            this.addMessage(message, 'user');
+            this.userInput.value = '';
+            this.currentPage = 1;
+        }
+        if (isShowMore) {
+            this.currentPage += 1;
+        }
+        
         this.showAIThinking();
 
         try {
-            const response = await this.apiClient.sendQuery(message);
+            const response = await this.apiClient.sendQuery(query, {
+                page: this.currentPage,
+                page_size: this.pageSize
+            });
             this.hideAIThinking();
 
             if (response.text) {
@@ -72,8 +89,10 @@ class App {
                     type: 'show_results',
                     data: {
                         data: response.data,
-                        summary: response.summary
-                    }
+                        summary: response.summary,
+                        pagination: response.pagination
+                    },
+                    isNewQuery: !isShowMore
                 });
             }
 
@@ -127,23 +146,69 @@ class App {
     handleAction(action) {
         if (action.type === 'show_results') {
             this.currentResults = action.data;
-            this.renderTable(action.data.data);
+            this.hasMore = Boolean(action.data.pagination && action.data.pagination.has_more);
+
+            if (action.isNewQuery) {
+                this.fullData = action.data.data;
+                this.renderedDataCount = 0;
+                this.resultsArea.innerHTML = ''; // Clear previous results
+            } else {
+                this.fullData.push(...action.data.data);
+            }
+            
+            this.renderTable(action.isNewQuery);
         }
     }
 
-    renderTable(data) {
-        if (!data || data.length === 0) return;
-        const keys = Object.keys(data[0]);
-        let html = '<table class="result-table"><thead><tr>';
-        keys.forEach(k => html += `<th>${k}</th>`);
-        html += '</tr></thead><tbody>';
-        data.forEach(row => {
-            html += '<tr>';
-            keys.forEach(k => html += `<td>${row[k]}</td>`);
-            html += '</tr>';
+    renderTable(isNewQuery) {
+        if (!this.fullData || this.fullData.length === 0) return;
+
+        let table = this.resultsArea.querySelector('.result-table');
+        let tbody;
+
+        if (isNewQuery || !table) {
+            const keys = Object.keys(this.fullData[0]);
+            let html = '<div class="result-table-wrapper"><table class="result-table"><thead><tr>';
+            keys.forEach(k => html += `<th>${k}</th>`);
+            html += '</tr></thead><tbody></tbody></table></div>';
+            this.resultsArea.innerHTML = html;
+            table = this.resultsArea.querySelector('.result-table');
+        }
+        
+        tbody = table.querySelector('tbody');
+        
+        const dataToRender = this.fullData.slice(this.renderedDataCount);
+
+        let newRowsHtml = '';
+        dataToRender.forEach(row => {
+            newRowsHtml += '<tr>';
+            Object.values(row).forEach(val => newRowsHtml += `<td>${val}</td>`);
+            newRowsHtml += '</tr>';
         });
-        html += '</tbody></table>';
-        this.resultsArea.innerHTML = html;
+
+        tbody.insertAdjacentHTML('beforeend', newRowsHtml);
+        this.renderedDataCount = this.fullData.length;
+
+        this.updateShowMoreButton();
+    }
+    
+    updateShowMoreButton() {
+        let showMoreBtn = this.resultsArea.querySelector('.show-more-btn');
+        if (showMoreBtn) {
+            showMoreBtn.remove();
+        }
+
+        if (this.hasMore) {
+            showMoreBtn = document.createElement('button');
+            showMoreBtn.className = 'show-more-btn';
+            showMoreBtn.textContent = 'Show More';
+            showMoreBtn.addEventListener('click', () => this.showMore());
+            this.resultsArea.appendChild(showMoreBtn);
+        }
+    }
+
+    showMore() {
+        this.sendMessage(true);
     }
 
     showChart(chartConfig) {
